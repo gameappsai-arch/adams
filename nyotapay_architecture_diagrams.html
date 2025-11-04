@@ -1,0 +1,739 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>NyotaPay Architecture Diagrams - High-Level & Low-Level</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #0f172a;
+      --card: #1e293b;
+      --border: #334155;
+      --text: #f1f5f9;
+      --text-muted: #94a3b8;
+      --accent: #3b82f6;
+      --accent-light: #60a5fa;
+      --success: #10b981;
+      --warning: #f59e0b;
+    }
+    
+    * { 
+      box-sizing: border-box; 
+      margin: 0;
+      padding: 0;
+    }
+    
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+      color: var(--text);
+      line-height: 1.6;
+      padding: 40px 20px;
+      min-height: 100vh;
+    }
+    
+    .container {
+      max-width: 1400px;
+      margin: 0 auto;
+    }
+    
+    header {
+      text-align: center;
+      margin-bottom: 60px;
+      padding-bottom: 30px;
+      border-bottom: 2px solid var(--border);
+    }
+    
+    h1 {
+      font-size: 42px;
+      font-weight: 800;
+      margin-bottom: 12px;
+      background: linear-gradient(135deg, var(--accent-light), var(--success));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    
+    .subtitle {
+      font-size: 18px;
+      color: var(--text-muted);
+      max-width: 800px;
+      margin: 0 auto;
+    }
+    
+    .diagram-section {
+      background: var(--card);
+      border-radius: 16px;
+      padding: 40px;
+      margin-bottom: 40px;
+      border: 1px solid var(--border);
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+    }
+    
+    .diagram-header {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      margin-bottom: 24px;
+      padding-bottom: 20px;
+      border-bottom: 1px solid var(--border);
+    }
+    
+    .badge {
+      background: var(--accent);
+      color: white;
+      padding: 6px 14px;
+      border-radius: 20px;
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+    }
+    
+    .badge.low-level {
+      background: var(--success);
+    }
+    
+    h2 {
+      font-size: 28px;
+      font-weight: 700;
+    }
+    
+    .description {
+      color: var(--text-muted);
+      margin-bottom: 30px;
+      line-height: 1.8;
+      font-size: 16px;
+    }
+    
+    .mermaid {
+      background: #0a0e1a;
+      border-radius: 12px;
+      padding: 30px;
+      border: 1px solid var(--border);
+      margin: 20px 0;
+    }
+    
+    .legend {
+      display: flex;
+      gap: 20px;
+      flex-wrap: wrap;
+      margin-top: 24px;
+      padding: 20px;
+      background: rgba(59, 130, 246, 0.05);
+      border-radius: 8px;
+      border: 1px dashed var(--border);
+    }
+    
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 14px;
+      color: var(--text-muted);
+    }
+    
+    .legend-color {
+      width: 20px;
+      height: 20px;
+      border-radius: 4px;
+      border: 1px solid var(--border);
+    }
+    
+    .key-features {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 20px;
+      margin-top: 30px;
+    }
+    
+    .feature-card {
+      background: rgba(59, 130, 246, 0.05);
+      padding: 20px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+    }
+    
+    .feature-card h3 {
+      font-size: 16px;
+      margin-bottom: 8px;
+      color: var(--accent-light);
+    }
+    
+    .feature-card p {
+      font-size: 14px;
+      color: var(--text-muted);
+      line-height: 1.6;
+    }
+    
+    footer {
+      text-align: center;
+      margin-top: 60px;
+      padding-top: 30px;
+      border-top: 1px solid var(--border);
+      color: var(--text-muted);
+      font-size: 14px;
+    }
+    
+    @media print {
+      body { background: white; color: black; }
+      .diagram-section { break-inside: avoid; page-break-inside: avoid; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>NyotaPay Architecture</h1>
+      <p class="subtitle">Comprehensive High-Level & Low-Level Architecture Diagrams for On-Premises Deployment</p>
+    </header>
+
+    <!-- HIGH-LEVEL ARCHITECTURE -->
+    <section class="diagram-section">
+      <div class="diagram-header">
+        <span class="badge">High-Level</span>
+        <h2>System Context Architecture</h2>
+      </div>
+      
+      <p class="description">
+        This high-level view shows the complete NyotaPay ecosystem, including all external channels (Mobile, USSD, SMS), 
+        edge security layers (WAF, API Gateway), the core payment platform with its three functional modules 
+        (P2P Transfers, Cash-In/Out, Merchant Payments), supporting infrastructure (databases, caching, messaging), 
+        and external integrations with banks, telcos, and merchant partners.
+      </p>
+
+      <div class="mermaid">
+graph TB
+    subgraph "External Channels & Users"
+        APP["📱 Mobile App / Web<br/>iOS, Android, PWA"]
+        USSD["📞 USSD Channel<br/>*123# Short Codes"]
+        SMS["💬 SMS Gateway<br/>2-Way Messaging"]
+        AGENT["👤 Agent App<br/>Cash-In/Out Agents"]
+    end
+
+    subgraph "Edge Security Layer"
+        WAF["🛡️ WAF + L7 Load Balancer<br/>DDoS Protection, TLS 1.3<br/>Rate Limiting, IP Filtering"]
+        APIGW["🚪 API Gateway<br/>JWT Validation, HMAC<br/>Quotas, Idempotency"]
+    end
+
+    subgraph "NyotaPay Core Platform"
+        direction TB
+        
+        subgraph "Application Services"
+            P2P["💸 P2P Transfers API<br/>Person-to-Person Payments"]
+            CASH["💰 Cash-In/Out API<br/>Agent Operations"]
+            MERCH["🏪 Merchant Payments API<br/>Bills, Utilities, Airtime"]
+        end
+        
+        subgraph "Shared Services Layer"
+            AUTH["🔐 Auth Service<br/>JWT, HMAC, mTLS"]
+            WALLET["👛 Wallet Service<br/>Account Management"]
+            LEDGER["📊 Ledger Service<br/>Double-Entry Accounting"]
+            FEES["💵 Fee Engine<br/>Commission Calculation"]
+            LIMITS["⚠️ Limits Engine<br/>Velocity & Thresholds"]
+            IDEMP["🔄 Idempotency Manager<br/>Duplicate Prevention"]
+        end
+        
+        subgraph "Data & Infrastructure"
+            SQL["🗄️ SQL Server 2022 HA<br/>Primary/Secondary Cluster<br/>AlwaysOn Availability Groups"]
+            REDIS["⚡ Redis Cache<br/>Session, Rate Limits<br/>Distributed Locks"]
+            MQ["📮 Message Queue<br/>RabbitMQ / Kafka<br/>Event Streaming"]
+            OUTBOX["📤 Outbox Pattern<br/>Reliable Event Delivery"]
+        end
+    end
+
+    subgraph "Integration Adapters"
+        USSD_CONN["📡 USSD Connectors<br/>Telco Integration"]
+        SMS_CONN["📨 SMS/SMPP Sender<br/>Notification Delivery"]
+        BANK["🏦 Bank Adapters<br/>Core Banking Rails"]
+        TELCO["📱 Telco Adapters<br/>Mobile Money, Airtime"]
+        UTIL["🔌 Utility Adapters<br/>Bill Payment Partners"]
+    end
+
+    subgraph "External Partners"
+        BANKS["🏦 Commercial Banks<br/>Settlement & Clearing"]
+        TELCOS["📡 Mobile Network Operators<br/>USSD, Airtime, M-Money"]
+        MERCHANTS["🏪 Merchants & Utilities<br/>Payment Acceptance"]
+    end
+
+    subgraph "Operations & Monitoring"
+        OBS["📊 Observability Stack<br/>ELK/EFK, Prometheus<br/>Grafana Dashboards"]
+        VAULT["🔐 Secrets Management<br/>HashiCorp Vault / KMS"]
+    end
+
+    %% Channel Flows
+    APP --> WAF
+    USSD --> WAF
+    SMS --> WAF
+    AGENT --> WAF
+    
+    %% Security Flow
+    WAF --> APIGW
+    APIGW --> P2P
+    APIGW --> CASH
+    APIGW --> MERCH
+    
+    %% Service Dependencies
+    P2P --> AUTH
+    CASH --> AUTH
+    MERCH --> AUTH
+    
+    AUTH --> WALLET
+    WALLET --> LEDGER
+    WALLET --> LIMITS
+    P2P --> IDEMP
+    CASH --> IDEMP
+    MERCH --> IDEMP
+    
+    LEDGER --> FEES
+    LEDGER --> OUTBOX
+    
+    %% Data Layer
+    P2P --> SQL
+    CASH --> SQL
+    MERCH --> SQL
+    WALLET --> SQL
+    LEDGER --> SQL
+    
+    P2P --> REDIS
+    CASH --> REDIS
+    MERCH --> REDIS
+    AUTH --> REDIS
+    
+    OUTBOX --> MQ
+    
+    %% Adapter Connections
+    USSD --> USSD_CONN
+    SMS --> SMS_CONN
+    P2P --> USSD_CONN
+    P2P --> SMS_CONN
+    CASH --> USSD_CONN
+    CASH --> SMS_CONN
+    MERCH --> SMS_CONN
+    
+    CASH --> BANK
+    MERCH --> BANK
+    MERCH --> TELCO
+    MERCH --> UTIL
+    
+    %% External Integrations
+    BANK --> BANKS
+    TELCO --> TELCOS
+    UTIL --> MERCHANTS
+    
+    %% Monitoring
+    P2P -.-> OBS
+    CASH -.-> OBS
+    MERCH -.-> OBS
+    AUTH -.-> VAULT
+    
+    %% Styling
+    classDef channel fill:#065f46,stroke:#6ee7b7,color:#ecfdf5,stroke-width:2px
+    classDef security fill:#7c2d12,stroke:#fdba74,color:#fff7ed,stroke-width:2px
+    classDef core fill:#1e40af,stroke:#93c5fd,color:#dbeafe,stroke-width:2px
+    classDef shared fill:#4338ca,stroke:#a5b4fc,color:#e0e7ff,stroke-width:2px
+    classDef data fill:#7c3aed,stroke:#c4b5fd,color:#f5f3ff,stroke-width:2px
+    classDef adapter fill:#db2777,stroke:#f9a8d4,color:#fdf2f8,stroke-width:2px
+    classDef external fill:#ea580c,stroke:#fdba74,color:#fff7ed,stroke-width:2px
+    classDef ops fill:#0891b2,stroke:#67e8f9,color:#cffafe,stroke-width:2px
+    
+    class APP,USSD,SMS,AGENT channel
+    class WAF,APIGW security
+    class P2P,CASH,MERCH core
+    class AUTH,WALLET,LEDGER,FEES,LIMITS,IDEMP shared
+    class SQL,REDIS,MQ,OUTBOX data
+    class USSD_CONN,SMS_CONN,BANK,TELCO,UTIL adapter
+    class BANKS,TELCOS,MERCHANTS external
+    class OBS,VAULT ops
+      </div>
+
+      <div class="legend">
+        <div class="legend-item">
+          <div class="legend-color" style="background: #065f46;"></div>
+          <span>External Channels</span>
+        </div>
+        <div class="legend-item">
+          <div class="legend-color" style="background: #7c2d12;"></div>
+          <span>Security Layer</span>
+        </div>
+        <div class="legend-item">
+          <div class="legend-color" style="background: #1e40af;"></div>
+          <span>Core APIs</span>
+        </div>
+        <div class="legend-item">
+          <div class="legend-color" style="background: #4338ca;"></div>
+          <span>Shared Services</span>
+        </div>
+        <div class="legend-item">
+          <div class="legend-color" style="background: #7c3aed;"></div>
+          <span>Data Layer</span>
+        </div>
+        <div class="legend-item">
+          <div class="legend-color" style="background: #db2777;"></div>
+          <span>Integration Adapters</span>
+        </div>
+        <div class="legend-item">
+          <div class="legend-color" style="background: #ea580c;"></div>
+          <span>External Partners</span>
+        </div>
+        <div class="legend-item">
+          <div class="legend-color" style="background: #0891b2;"></div>
+          <span>Operations</span>
+        </div>
+      </div>
+
+      <div class="key-features">
+        <div class="feature-card">
+          <h3>🔒 Security First</h3>
+          <p>Multi-layer security with WAF, TLS 1.3, JWT/HMAC authentication, mTLS between services, and secrets management</p>
+        </div>
+        <div class="feature-card">
+          <h3>🎯 High Availability</h3>
+          <p>SQL Server AlwaysOn AG, Redis for caching, load-balanced app nodes, and redundant adapters for zero downtime</p>
+        </div>
+        <div class="feature-card">
+          <h3>📊 Event-Driven</h3>
+          <p>Outbox pattern ensures reliable event delivery, message queuing decouples services, async processing for scale</p>
+        </div>
+        <div class="feature-card">
+          <h3>💰 Financial Integrity</h3>
+          <p>Double-entry ledger, idempotency guarantees, atomic transactions, and comprehensive audit trails</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- LOW-LEVEL ARCHITECTURE -->
+    <section class="diagram-section">
+      <div class="diagram-header">
+        <span class="badge low-level">Low-Level</span>
+        <h2>Detailed Component Architecture</h2>
+      </div>
+      
+      <p class="description">
+        This low-level architecture shows the internal structure of the application layer, including detailed 
+        component interactions, data flow patterns, API endpoints, database schema relationships, transaction 
+        processing sequences, and the complete request/response lifecycle through all system layers.
+      </p>
+
+      <div class="mermaid">
+graph TB
+    subgraph "Client Request Flow"
+        CLIENT["👤 Client Request<br/>Mobile/USSD/Web"]
+    end
+
+    subgraph "API Gateway Layer"
+        GW_AUTH["🔐 Authentication<br/>JWT Validation<br/>HMAC Verification"]
+        GW_QUOTA["⚖️ Rate Limiting<br/>Quota Management<br/>IP Whitelist"]
+        GW_IDEMP["🔄 Idempotency Check<br/>Header: Idempotency-Key<br/>ExternalRef Validation"]
+        GW_ROUTE["🔀 Request Router<br/>Load Balancing<br/>Circuit Breaker"]
+    end
+
+    subgraph "Application Node - P2P Transfer Service"
+        direction TB
+        P2P_CTRL["🎮 P2P Controller<br/>POST /p2p/send<br/>GET /p2p/status"]
+        P2P_VAL["✅ Request Validator<br/>Schema Validation<br/>Business Rules"]
+        P2P_APP["⚙️ Application Layer<br/>Transfer Orchestrator<br/>Command Handler"]
+        P2P_DOM["🏛️ Domain Layer<br/>Transfer Entity<br/>Business Logic<br/>Domain Events"]
+        P2P_REPO["💾 Repository<br/>ITransferRepository<br/>IWalletRepository"]
+    end
+
+    subgraph "Application Node - Cash-In/Out Service"
+        direction TB
+        CASH_CTRL["🎮 Cash Controller<br/>POST /cashin<br/>POST /cashout"]
+        CASH_VAL["✅ Agent Validator<br/>Float Verification<br/>KYC Check"]
+        CASH_APP["⚙️ Application Layer<br/>Cash Orchestrator<br/>Float Manager"]
+        CASH_DOM["🏛️ Domain Layer<br/>CashTransaction<br/>Agent Float<br/>Domain Events"]
+        CASH_REPO["💾 Repository<br/>ICashRepository<br/>IAgentRepository"]
+    end
+
+    subgraph "Application Node - Merchant Payment Service"
+        direction TB
+        MERCH_CTRL["🎮 Merchant Controller<br/>POST /merchant/pay<br/>POST /bills/pay"]
+        MERCH_VAL["✅ Merchant Validator<br/>Partner Verification<br/>Product Validation"]
+        MERCH_APP["⚙️ Application Layer<br/>Payment Orchestrator<br/>Partner Connector"]
+        MERCH_DOM["🏛️ Domain Layer<br/>Payment Entity<br/>Settlement Logic<br/>Domain Events"]
+        MERCH_REPO["💾 Repository<br/>IPaymentRepository<br/>IMerchantRepository"]
+    end
+
+    subgraph "Shared Core Services"
+        direction LR
+        
+        subgraph "Auth Module"
+            AUTH_JWT["🔑 JWT Handler<br/>Token Generation<br/>Claims Validation"]
+            AUTH_HMAC["🔐 HMAC Handler<br/>Signature Verify<br/>Partner Auth"]
+        end
+        
+        subgraph "Wallet Module"
+            WALLET_CORE["👛 Wallet Core<br/>Get Balance<br/>Lock Account<br/>Status Check"]
+            WALLET_CACHE["⚡ Balance Cache<br/>Redis Get/Set<br/>TTL: 60s"]
+        end
+        
+        subgraph "Ledger Module"
+            LEDGER_CORE["📊 Ledger Core<br/>Double-Entry Posts<br/>Balance Calculation"]
+            LEDGER_PROC["🔧 Stored Procedures<br/>sp_PostTransaction<br/>sp_ReversalEntry"]
+        end
+        
+        subgraph "Fee Engine"
+            FEE_CALC["💵 Fee Calculator<br/>Tiered Rates<br/>Commission Split"]
+            FEE_RULE["📋 Fee Rules<br/>Product Matrix<br/>Merchant Rates"]
+        end
+        
+        subgraph "Limits Engine"
+            LIMIT_CHECK["⚠️ Limit Checker<br/>Daily/Monthly Caps<br/>Velocity Rules"]
+            LIMIT_CACHE["⚡ Limit Cache<br/>Redis Counters<br/>Sliding Window"]
+        end
+        
+        subgraph "Idempotency Manager"
+            IDEMP_CHECK["🔍 Duplicate Detector<br/>ExternalRef Hash<br/>Result Replay"]
+            IDEMP_STORE["💾 Key Store<br/>SQL Table<br/>TTL: 24h"]
+        end
+    end
+
+    subgraph "Data Persistence Layer"
+        direction TB
+        
+        SQL_PRIMARY["🗄️ SQL Primary<br/>Write Operations<br/>Transaction Log"]
+        SQL_SECONDARY["🗄️ SQL Secondary<br/>Read Operations<br/>Sync Replication"]
+        
+        subgraph "Core Tables"
+            T_CUSTOMER["👥 CUSTOMER<br/>PK: CustomerId<br/>Msisdn, KYC"]
+            T_ACCOUNT["👛 ACCOUNT<br/>PK: AccountId<br/>Balance, Status"]
+            T_TRANSACTION["📝 TRANSACTION<br/>PK: TxId<br/>ExternalRef, Amount"]
+            T_LEDGER["📊 LEDGER_ENTRY<br/>PK: EntryId<br/>Debit, Credit"]
+            T_OUTBOX["📤 OUTBOX<br/>PK: EventId<br/>Payload, Status"]
+            T_IDEMP["🔄 IDEMPOTENCY_KEY<br/>PK: Key<br/>ResultHash"]
+        end
+    end
+
+    subgraph "Event Processing Layer"
+        MQ_PRODUCER["📮 Event Producer<br/>Outbox Polling<br/>Publisher"]
+        MQ_BROKER["🔀 Message Broker<br/>RabbitMQ Exchange<br/>Topic Routing"]
+        MQ_CONSUMER["📥 Event Consumer<br/>Notification Worker<br/>Settlement Worker"]
+    end
+
+    subgraph "Integration Layer"
+        SMS_ADAPTER["📨 SMS Adapter<br/>SMPP Protocol<br/>Delivery Reports"]
+        PUSH_ADAPTER["📲 Push Adapter<br/>FCM/APNS<br/>App Notifications"]
+        BANK_ADAPTER["🏦 Bank Adapter<br/>ISO 8583<br/>Settlement File"]
+        TELCO_ADAPTER["📱 Telco Adapter<br/>USSD Gateway<br/>Airtime API"]
+    end
+
+    subgraph "Caching & State"
+        REDIS_CACHE["⚡ Redis Cache<br/>Balances, Sessions<br/>Hot Data"]
+        REDIS_LOCK["🔒 Distributed Lock<br/>Redlock Algorithm<br/>Transaction Mutex"]
+        REDIS_LIMIT["📊 Rate Counters<br/>Sliding Windows<br/>Velocity Tracking"]
+    end
+
+    subgraph "Observability"
+        METRICS["📊 Metrics<br/>Prometheus<br/>Custom Gauges"]
+        LOGS["📝 Logs<br/>Structured JSON<br/>ELK Stack"]
+        TRACES["🔍 Traces<br/>Distributed Tracing<br/>Request ID"]
+        ALERTS["🚨 Alerts<br/>PagerDuty<br/>Slack Webhooks"]
+    end
+
+    %% Request Flow
+    CLIENT --> GW_AUTH
+    GW_AUTH --> GW_QUOTA
+    GW_QUOTA --> GW_IDEMP
+    GW_IDEMP --> GW_ROUTE
+    
+    %% Routing to Services
+    GW_ROUTE --> P2P_CTRL
+    GW_ROUTE --> CASH_CTRL
+    GW_ROUTE --> MERCH_CTRL
+    
+    %% P2P Flow
+    P2P_CTRL --> P2P_VAL
+    P2P_VAL --> P2P_APP
+    P2P_APP --> P2P_DOM
+    P2P_DOM --> P2P_REPO
+    
+    %% Cash Flow
+    CASH_CTRL --> CASH_VAL
+    CASH_VAL --> CASH_APP
+    CASH_APP --> CASH_DOM
+    CASH_DOM --> CASH_REPO
+    
+    %% Merchant Flow
+    MERCH_CTRL --> MERCH_VAL
+    MERCH_VAL --> MERCH_APP
+    MERCH_APP --> MERCH_DOM
+    MERCH_DOM --> MERCH_REPO
+    
+    %% Shared Services Integration
+    P2P_APP --> AUTH_JWT
+    CASH_APP --> AUTH_JWT
+    MERCH_APP --> AUTH_HMAC
+    
+    P2P_APP --> WALLET_CORE
+    CASH_APP --> WALLET_CORE
+    MERCH_APP --> WALLET_CORE
+    WALLET_CORE --> WALLET_CACHE
+    
+    P2P_APP --> LEDGER_CORE
+    CASH_APP --> LEDGER_CORE
+    MERCH_APP --> LEDGER_CORE
+    LEDGER_CORE --> LEDGER_PROC
+    
+    MERCH_APP --> FEE_CALC
+    FEE_CALC --> FEE_RULE
+    
+    P2P_APP --> LIMIT_CHECK
+    CASH_APP --> LIMIT_CHECK
+    MERCH_APP --> LIMIT_CHECK
+    LIMIT_CHECK --> LIMIT_CACHE
+    
+    P2P_VAL --> IDEMP_CHECK
+    CASH_VAL --> IDEMP_CHECK
+    MERCH_VAL --> IDEMP_CHECK
+    IDEMP_CHECK --> IDEMP_STORE
+    
+    %% Data Layer Connections
+    P2P_REPO --> SQL_PRIMARY
+    CASH_REPO --> SQL_PRIMARY
+    MERCH_REPO --> SQL_PRIMARY
+    
+    SQL_PRIMARY --> SQL_SECONDARY
+    
+    SQL_PRIMARY --> T_CUSTOMER
+    SQL_PRIMARY --> T_ACCOUNT
+    SQL_PRIMARY --> T_TRANSACTION
+    SQL_PRIMARY --> T_LEDGER
+    SQL_PRIMARY --> T_OUTBOX
+    SQL_PRIMARY --> T_IDEMP
+    
+    T_CUSTOMER --> T_ACCOUNT
+    T_ACCOUNT --> T_TRANSACTION
+    T_TRANSACTION --> T_LEDGER
+    T_TRANSACTION --> T_OUTBOX
+    
+    %% Event Flow
+    T_OUTBOX --> MQ_PRODUCER
+    MQ_PRODUCER --> MQ_BROKER
+    MQ_BROKER --> MQ_CONSUMER
+    
+    MQ_CONSUMER --> SMS_ADAPTER
+    MQ_CONSUMER --> PUSH_ADAPTER
+    MQ_CONSUMER --> BANK_ADAPTER
+    MQ_CONSUMER --> TELCO_ADAPTER
+    
+    %% Cache Connections
+    WALLET_CACHE --> REDIS_CACHE
+    LIMIT_CACHE --> REDIS_LIMIT
+    LEDGER_PROC --> REDIS_LOCK
+    
+    %% Observability
+    P2P_APP -.-> METRICS
+    CASH_APP -.-> METRICS
+    MERCH_APP -.-> METRICS
+    
+    P2P_APP -.-> LOGS
+    CASH_APP -.-> LOGS
+    MERCH_APP -.-> LOGS
+    
+    GW_ROUTE -.-> TRACES
+    P2P_APP -.-> TRACES
+    
+    METRICS -.-> ALERTS
+    
+    %% Styling
+    classDef client fill:#065f46,stroke:#6ee7b7,color:#ecfdf5,stroke-width:2px
+    classDef gateway fill:#7c2d12,stroke:#fdba74,color:#fff7ed,stroke-width:2px
+    classDef controller fill:#1e40af,stroke:#93c5fd,color:#dbeafe,stroke-width:2px
+    classDef service fill:#4338ca,stroke:#a5b4fc,color:#e0e7ff,stroke-width:2px
+    classDef domain fill:#6366f1,stroke:#c7d2fe,color:#eef2ff,stroke-width:2px
+    classDef repo fill:#7c3aed,stroke:#c4b5fd,color:#f5f3ff,stroke-width:2px
+    classDef shared fill:#8b5cf6,stroke:#d8b4fe,color:#faf5ff,stroke-width:2px
+    classDef data fill:#db2777,stroke:#f9a8d4,color:#fdf2f8,stroke-width:2px
+    classDef table fill:#be185d,stroke:#f9a8d4,color:#fce7f3,stroke-width:2px
+    classDef event fill:#ea580c,stroke:#fdba74,color:#fff7ed,stroke-width:2px
+    classDef cache fill:#0891b2,stroke:#67e8f9,color:#cffafe,stroke-width:2px
+    classDef obs fill:#059669,stroke:#6ee7b7,color:#d1fae5,stroke-width:2px
+    
+    class CLIENT client
+    class GW_AUTH,GW_QUOTA,GW_IDEMP,GW_ROUTE gateway
+    class P2P_CTRL,CASH_CTRL,MERCH_CTRL controller
+    class P2P_VAL,P2P_APP,CASH_VAL,CASH_APP,MERCH_VAL,MERCH_APP service
+    class P2P_DOM,CASH_DOM,MERCH_DOM domain
+    class P2P_REPO,CASH_REPO,MERCH_REPO repo
+    class AUTH_JWT,AUTH_HMAC,WALLET_CORE,WALLET_CACHE,LEDGER_CORE,LEDGER_PROC,FEE_CALC,FEE_RULE,LIMIT_CHECK,LIMIT_CACHE,IDEMP_CHECK,IDEMP_STORE shared
+    class SQL_PRIMARY,SQL_SECONDARY data
+    class T_CUSTOMER,T_ACCOUNT,T_TRANSACTION,T_LEDGER,T_OUTBOX,T_IDEMP table
+    class MQ_PRODUCER,MQ_BROKER,MQ_CONSUMER,SMS_ADAPTER,PUSH_ADAPTER,BANK_ADAPTER,TELCO_ADAPTER event
+    class REDIS_CACHE,REDIS_LOCK,REDIS_LIMIT cache
+    class METRICS,LOGS,TRACES,ALERTS obs
+      </div>
+
+      <div class="key-features">
+        <div class="feature-card">
+          <h3>🏗️ Clean Architecture</h3>
+          <p>Controller → Application → Domain → Repository pattern with clear separation of concerns and dependency inversion</p>
+        </div>
+        <div class="feature-card">
+          <h3>🔄 Idempotency</h3>
+          <p>ExternalRef uniqueness guarantees, result replay for duplicate requests, 24-hour key retention</p>
+        </div>
+        <div class="feature-card">
+          <h3>📊 Double-Entry Ledger</h3>
+          <p>Atomic debit/credit pairs, stored procedures for consistency, balance recomputation, immutable entries</p>
+        </div>
+        <div class="feature-card">
+          <h3>📤 Outbox Pattern</h3>
+          <p>Reliable event delivery, at-least-once guarantee, background polling, consumer idempotency</p>
+        </div>
+        <div class="feature-card">
+          <h3>⚡ Performance</h3>
+          <p>Redis caching for hot data, distributed locks for concurrency, connection pooling, query optimization</p>
+        </div>
+        <div class="feature-card">
+          <h3>🔍 Observability</h3>
+          <p>Structured logging, distributed tracing with correlation IDs, Prometheus metrics, real-time alerts</p>
+        </div>
+      </div>
+
+      <div style="margin-top: 40px; padding: 24px; background: rgba(59, 130, 246, 0.08); border-radius: 8px; border-left: 4px solid var(--accent);">
+        <h3 style="margin-bottom: 12px; color: var(--accent-light);">💡 Transaction Processing Flow</h3>
+        <ol style="color: var(--text-muted); line-height: 2; padding-left: 20px;">
+          <li><strong>Request arrives</strong> → Gateway validates JWT/HMAC, checks rate limits, verifies idempotency key</li>
+          <li><strong>Service layer</strong> → Validates business rules, checks limits, verifies wallet status and balance</li>
+          <li><strong>Domain layer</strong> → Applies business logic, generates domain events, creates transaction entity</li>
+          <li><strong>Ledger posts</strong> → Stored procedure creates double-entry (debit/credit), updates balances atomically</li>
+          <li><strong>Outbox write</strong> → Domain events written to outbox table in same SQL transaction</li>
+          <li><strong>Commit</strong> → Single database transaction commits, ensuring consistency</li>
+          <li><strong>Event dispatch</strong> → Background worker polls outbox, publishes to message queue</li>
+          <li><strong>Notifications</strong> → Consumers send SMS/push notifications, trigger settlements</li>
+        </ol>
+      </div>
+    </section>
+
+    <footer>
+      <p>NyotaPay On-Premises Architecture | Updated: October 2025</p>
+      <p style="margin-top: 8px;"></p>
+    </footer>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <script>
+    mermaid.initialize({ 
+      startOnLoad: true, 
+      theme: 'dark',
+      securityLevel: 'loose',
+      themeVariables: {
+        darkMode: true,
+        background: '#0a0e1a',
+        primaryColor: '#1e40af',
+        primaryTextColor: '#f1f5f9',
+        primaryBorderColor: '#3b82f6',
+        lineColor: '#94a3b8',
+        secondaryColor: '#065f46',
+        tertiaryColor: '#7c2d12',
+        fontSize: '14px',
+        fontFamily: 'Inter, sans-serif'
+      }
+    });
+  </script>
+</body>
+</html>
