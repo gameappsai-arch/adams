@@ -235,13 +235,13 @@ Single entry point with:
 - Rate limiting
 - Caching
 
-### 3.6 Service Mesh Pattern
+### 3.6 Service Discovery Pattern
 
-Infrastructure layer handling:
-- mTLS between services
-- Traffic management
-- Observability
-- Resilience (circuit breaker, retry)
+Service registry for dynamic service location:
+- Automatic service registration on startup
+- Health-based service discovery
+- DNS and API-based lookups
+- Configuration distribution
 
 ### 3.7 Strangler Fig Pattern
 
@@ -758,177 +758,286 @@ POST /merchant/callback
 
 ## 8. Deployment Architecture
 
-### 8.1 Container Orchestration (Kubernetes)
+### 8.1 VM-Based Deployment Architecture
 
-**Cluster Architecture:**
+**Infrastructure Layout:**
 ```
-Production Cluster:
-├── Master Nodes (3x) - Control Plane
-│   ├── API Server
-│   ├── Scheduler
-│   ├── Controller Manager
-│   └── etcd cluster
+Production Environment:
+├── Load Balancer Tier (3 VMs)
+│   ├── HAProxy / Nginx Load Balancers
+│   ├── Keepalived for HA (Virtual IP failover)
+│   └── API Gateway instances
 │
-├── Worker Nodes (10x) - Application Workloads
-│   ├── Core Services (P2P, Cash, Merchant)
-│   ├── Shared Services (Wallet, Ledger, etc.)
-│   └── Integration Adapters
+├── Application Tier (12 VMs)
+│   ├── P2P Service VMs (3x)
+│   ├── Cash-In/Out Service VMs (3x)
+│   ├── Merchant Payment Service VMs (3x)
+│   └── Shared Services VMs (3x)
+│       ├── Wallet Service
+│       ├── Ledger Service
+│       └── Auth Service
 │
-└── Edge Nodes (3x) - Ingress
-    ├── Nginx Ingress Controller
-    └── API Gateway
+├── Integration Tier (4 VMs)
+│   ├── Bank Adapters (2x)
+│   └── Telco/Merchant Adapters (2x)
+│
+├── Data Tier
+│   ├── SQL Server Cluster (3 VMs - AlwaysOn AG)
+│   ├── Redis Cluster (6 VMs - 3 masters, 3 replicas)
+│   └── Kafka Cluster (5 VMs + 3 Zookeeper VMs)
+│
+└── Platform Services Tier (6 VMs)
+    ├── Monitoring (Prometheus, Grafana - 2 VMs)
+    ├── Logging (ELK Stack - 3 VMs)
+    └── Secrets Management (Vault - 1 VM)
 ```
 
-**Namespaces:**
-- `core`: Core business services
-- `shared`: Shared capability services
-- `integration`: External adapters
-- `platform`: Infrastructure services (monitoring, logging)
-- `security`: Security services
+**VM Organization:**
+- **Core Services**: Business logic services in isolated VMs
+- **Shared Services**: Common capability services
+- **Integration**: External system adapters
+- **Platform**: Infrastructure and observability
+- **Data**: Database and messaging infrastructure
 
-### 8.2 Service Deployment
+### 8.2 Service Deployment on VMs
 
-**Deployment Manifest Example:**
-```yaml
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: p2p-service
-  namespace: core
-spec:
-  replicas: 3
-  strategy:
-    type: RollingUpdate
-    rollingUpdate:
-      maxSurge: 1
-      maxUnavailable: 0
-  selector:
-    matchLabels:
-      app: p2p-service
-  template:
-    metadata:
-      labels:
-        app: p2p-service
-        version: v1.2.0
-    spec:
-      containers:
-      - name: p2p-service
-        image: registry.nyotapay.com/p2p-service:1.2.0
-        ports:
-        - containerPort: 8080
-          name: http
-        - containerPort: 9090
-          name: metrics
-        env:
-        - name: DATABASE_URL
-          valueFrom:
-            secretKeyRef:
-              name: db-credentials
-              key: connection-string
-        resources:
-          requests:
-            cpu: 500m
-            memory: 1Gi
-          limits:
-            cpu: 2000m
-            memory: 4Gi
-        livenessProbe:
-          httpGet:
-            path: /health/live
-            port: 8080
-          initialDelaySeconds: 30
-          periodSeconds: 10
-        readinessProbe:
-          httpGet:
-            path: /health/ready
-            port: 8080
-          initialDelaySeconds: 10
-          periodSeconds: 5
+**VM Specifications:**
+
+**P2P Service VM:**
+- **OS**: Ubuntu 22.04 LTS / RHEL 8
+- **CPU**: 4 vCPU
+- **Memory**: 8 GB RAM
+- **Disk**: 100 GB SSD
+- **Network**: 1 Gbps, multiple NICs (management, application, data)
+
+**Service Deployment Process:**
+1. Provision VM using automated templates
+2. Configure OS hardening and security policies
+3. Install runtime dependencies (.NET 8 Runtime)
+4. Deploy application binaries from artifact repository
+5. Configure service as systemd unit for auto-restart
+6. Set environment variables from configuration management
+7. Configure health check endpoints
+8. Register service with service discovery (Consul/etcd)
+9. Add VM to load balancer pool
+
+**Systemd Service Configuration:**
+```ini
+[Unit]
+Description=NyotaPay P2P Transfer Service
+After=network.target
+
+[Service]
+Type=notify
+User=nyotapay
+Group=nyotapay
+WorkingDirectory=/opt/nyotapay/p2p-service
+ExecStart=/usr/bin/dotnet /opt/nyotapay/p2p-service/NyotaPay.P2P.dll
+Restart=always
+RestartSec=10
+Environment="ASPNETCORE_ENVIRONMENT=Production"
+Environment="DATABASE_URL=<from-vault>"
+
+# Resource limits
+MemoryLimit=8G
+CPUQuota=400%
+
+# Health checks
+TimeoutStartSec=60
+WatchdogSec=30
+
+[Install]
+WantedBy=multi-user.target
 ```
 
-### 8.3 Service Mesh (Istio)
+**Health Check Configuration:**
+- **Liveness**: HTTP GET /health/live every 10 seconds
+- **Readiness**: HTTP GET /health/ready every 5 seconds
+- **Startup**: Initial delay 30 seconds
+
+### 8.3 Service Discovery and Load Balancing
+
+**Service Discovery (Consul):**
 
 **Benefits:**
-- Automatic mTLS
-- Traffic management
-- Observability
-- Policy enforcement
+- Automatic service registration
+- Health-based routing
+- DNS-based service discovery
+- Key-value store for configuration
 
-**Virtual Service Example:**
-```yaml
-apiVersion: networking.istio.io/v1beta1
-kind: VirtualService
-metadata:
-  name: p2p-service
-spec:
-  hosts:
-  - p2p-service
-  http:
-  - match:
-    - headers:
-        x-api-version:
-          exact: v2
-    route:
-    - destination:
-        host: p2p-service
-        subset: v2
-      weight: 100
-  - route:
-    - destination:
-        host: p2p-service
-        subset: v1
-      weight: 90
-    - destination:
-        host: p2p-service
-        subset: v2
-      weight: 10
-  retries:
-    attempts: 3
-    perTryTimeout: 2s
-  timeout: 10s
+**Service Registration:**
+Each service automatically registers with Consul on startup:
+- Service name and version
+- IP address and port
+- Health check endpoints
+- Metadata (environment, datacenter, tags)
+
+**Consul Agent Configuration:**
+```json
+{
+  "service": {
+    "name": "p2p-service",
+    "tags": ["production", "v1.2.0"],
+    "port": 8080,
+    "check": {
+      "http": "http://localhost:8080/health/ready",
+      "interval": "10s",
+      "timeout": "2s"
+    }
+  }
+}
 ```
+
+**Load Balancing with HAProxy:**
+
+**Features:**
+- Layer 7 load balancing
+- SSL termination
+- Health checks
+- Session persistence
+- Traffic shaping
+
+**HAProxy Configuration:**
+```
+frontend api_frontend
+    bind *:443 ssl crt /etc/ssl/certs/nyotapay.pem
+    mode http
+    option httplog
+    default_backend p2p_backend
+
+backend p2p_backend
+    mode http
+    balance roundrobin
+    option httpchk GET /health/ready
+    http-check expect status 200
+
+    server p2p-vm-1 10.0.1.11:8080 check inter 5s fall 3 rise 2
+    server p2p-vm-2 10.0.1.12:8080 check inter 5s fall 3 rise 2
+    server p2p-vm-3 10.0.1.13:8080 check inter 5s fall 3 rise 2
+
+    # Retry configuration
+    retries 3
+    timeout connect 5s
+    timeout server 30s
+```
+
+**Keepalived for HA:**
+Multiple HAProxy instances with Virtual IP failover:
+- Master HAProxy holds Virtual IP
+- Backup HAProxy monitors master via VRRP
+- Automatic failover in <1 second
 
 ### 8.4 Infrastructure as Code
 
-**Terraform for Infrastructure:**
+**Terraform for VM Provisioning:**
 ```hcl
-resource "kubernetes_namespace" "core" {
-  metadata {
-    name = "core"
+# P2P Service VM Pool
+resource "vsphere_virtual_machine" "p2p_service" {
+  count            = 3
+  name             = "p2p-vm-${count.index + 1}"
+  resource_pool_id = data.vsphere_resource_pool.pool.id
+  datastore_id     = data.vsphere_datastore.datastore.id
+
+  num_cpus = 4
+  memory   = 8192
+
+  network_interface {
+    network_id = data.vsphere_network.network.id
+  }
+
+  disk {
+    label            = "disk0"
+    size             = 100
+    thin_provisioned = true
+  }
+
+  clone {
+    template_uuid = data.vsphere_virtual_machine.template.id
+
+    customize {
+      linux_options {
+        host_name = "p2p-vm-${count.index + 1}"
+        domain    = "nyotapay.local"
+      }
+
+      network_interface {
+        ipv4_address = "10.0.1.${11 + count.index}"
+        ipv4_netmask = 24
+      }
+
+      ipv4_gateway = "10.0.1.1"
+    }
+  }
+
+  # Provision with Ansible
+  provisioner "local-exec" {
+    command = "ansible-playbook -i ${self.default_ip_address}, playbooks/p2p-service.yml"
   }
 }
 
-resource "helm_release" "p2p_service" {
-  name      = "p2p-service"
-  namespace = kubernetes_namespace.core.metadata[0].name
-  chart     = "./charts/p2p-service"
+# Load Balancer VMs
+resource "vsphere_virtual_machine" "load_balancer" {
+  count  = 3
+  name   = "lb-vm-${count.index + 1}"
+  # ... similar configuration
+}
 
-  values = [
-    file("${path.module}/values/production.yaml")
-  ]
+# Application Load Balancer configuration
+resource "null_resource" "configure_haproxy" {
+  depends_on = [vsphere_virtual_machine.p2p_service]
+
+  provisioner "local-exec" {
+    command = "ansible-playbook playbooks/haproxy-config.yml"
+  }
 }
 ```
 
-**GitOps with ArgoCD:**
+**Ansible for Configuration Management:**
 ```yaml
-apiVersion: argoproj.io/v1alpha1
-kind: Application
-metadata:
-  name: nyotapay-core
-spec:
-  project: default
-  source:
-    repoURL: https://github.com/nyotapay/k8s-manifests
-    targetRevision: HEAD
-    path: production/core
-  destination:
-    server: https://kubernetes.default.svc
-    namespace: core
-  syncPolicy:
-    automated:
-      prune: true
-      selfHeal: true
+# playbooks/p2p-service.yml
+---
+- name: Deploy P2P Service
+  hosts: all
+  become: yes
+
+  roles:
+    - common
+    - dotnet-runtime
+    - consul-agent
+    - p2p-service
+    - monitoring-agent
+
+  tasks:
+    - name: Create application user
+      user:
+        name: nyotapay
+        system: yes
+
+    - name: Deploy application binaries
+      copy:
+        src: "{{ artifact_path }}/p2p-service/"
+        dest: /opt/nyotapay/p2p-service/
+        owner: nyotapay
+        group: nyotapay
+
+    - name: Configure systemd service
+      template:
+        src: p2p-service.service.j2
+        dest: /etc/systemd/system/p2p-service.service
+
+    - name: Start and enable service
+      systemd:
+        name: p2p-service
+        state: started
+        enabled: yes
+        daemon_reload: yes
 ```
+
+**Configuration Management:**
+- Ansible for VM configuration and application deployment
+- Consul for service discovery and configuration distribution
+- Vault for secrets management
+- Git for version control of all configurations
 
 ### 8.5 High Availability Setup
 
@@ -1009,64 +1118,66 @@ All policies are applied in a layered approach for comprehensive resilience.
 
 ### 9.2 Scalability Strategies
 
-**Horizontal Pod Autoscaling:**
+**Horizontal Scaling (Add/Remove VMs):**
+
+**Automated VM Scaling with vSphere API:**
+
+**Scaling Triggers:**
+- CPU utilization > 70% for 5 minutes → Scale up
+- CPU utilization < 30% for 10 minutes → Scale down
+- Memory utilization > 80% → Scale up
+- Request queue depth > 1000 → Scale up
+
+**Scaling Process:**
+1. **Monitoring**: Prometheus collects metrics from all service VMs
+2. **Evaluation**: Alert manager evaluates scaling rules
+3. **Decision**: Scaling script triggered via webhook
+4. **Provision**: Terraform/Ansible provisions new VM from template
+5. **Configure**: Ansible configures application and dependencies
+6. **Register**: Service registers with Consul automatically
+7. **Load Balance**: HAProxy detects new service via Consul
+8. **Traffic**: New VM starts receiving traffic
+
+**Scaling Configuration:**
 ```yaml
-apiVersion: autoscaling/v2
-kind: HorizontalPodAutoscaler
-metadata:
-  name: p2p-service-hpa
-spec:
-  scaleTargetRef:
-    apiVersion: apps/v1
-    kind: Deployment
-    name: p2p-service
-  minReplicas: 3
-  maxReplicas: 20
-  metrics:
-  - type: Resource
-    resource:
-      name: cpu
-      target:
-        type: Utilization
-        averageUtilization: 70
-  - type: Resource
-    resource:
-      name: memory
-      target:
-        type: Utilization
-        averageUtilization: 80
-  - type: Pods
-    pods:
-      metric:
-        name: http_requests_per_second
-      target:
-        type: AverageValue
-        averageValue: "1000"
+# scaling-rules.yml
+p2p_service:
+  min_vms: 3
+  max_vms: 10
+  scale_up:
+    cpu_threshold: 70
+    memory_threshold: 80
+    evaluation_period: 5m
+    cooldown: 10m
+  scale_down:
+    cpu_threshold: 30
+    memory_threshold: 50
+    evaluation_period: 10m
+    cooldown: 15m
 ```
 
-**Vertical Pod Autoscaling:**
-```yaml
-apiVersion: autoscaling.k8s.io/v1
-kind: VerticalPodAutoscaler
-metadata:
-  name: p2p-service-vpa
-spec:
-  targetRef:
-    apiVersion: apps/v1
-    kind: Deployment
-    name: p2p-service
-  updatePolicy:
-    updateMode: "Auto"
-  resourcePolicy:
-    containerPolicies:
-    - containerName: p2p-service
-      maxAllowed:
-        cpu: 4
-        memory: 8Gi
-      minAllowed:
-        cpu: 500m
-        memory: 1Gi
-```
+**Scaling Script:**
+- Monitor Prometheus metrics
+- Execute Terraform to provision/destroy VMs
+- Update load balancer configuration
+- Drain connections before removing VMs
+
+**Vertical Scaling (Resize VMs):**
+
+**VM Resizing Process:**
+1. Identify under-resourced VMs through metrics
+2. Schedule maintenance window
+3. Gracefully drain traffic from VM
+4. Power off VM
+5. Increase CPU/Memory allocation
+6. Power on VM
+7. Re-register with service discovery
+8. Resume traffic
+
+**Resize Automation:**
+- Automated during off-peak hours
+- Manual approval for production
+- Zero-downtime with multiple VM instances
 
 **Database Scaling:**
 - Read replicas for read-heavy queries
@@ -1145,43 +1256,40 @@ Implements smooth rate limiting with burst capacity:
 
 ### 9.5 Chaos Engineering
 
-**Chaos Mesh Experiments:**
+**Chaos Engineering Experiments:**
 
-```yaml
-apiVersion: chaos-mesh.org/v1alpha1
-kind: PodChaos
-metadata:
-  name: pod-failure-test
-spec:
-  action: pod-failure
-  mode: one
-  selector:
-    namespaces:
-      - core
-    labelSelectors:
-      app: p2p-service
-  duration: "30s"
-  scheduler:
-    cron: "@every 1h"
+**VM Failure Testing:**
+- Randomly shutdown service VMs during business hours
+- Verify automatic failover and traffic rerouting
+- Measure recovery time and customer impact
+- Tools: Custom scripts, vSphere API
+
+**Network Chaos Testing:**
+- Inject network latency using Linux tc (traffic control)
+- Simulate packet loss and network partitions
+- Test service behavior under degraded network conditions
+- Verify circuit breakers and timeouts work correctly
+
+**Example Network Latency Injection:**
+```bash
+# Add 200ms latency with 50ms jitter to eth0
+tc qdisc add dev eth0 root netem delay 200ms 50ms
+
+# Test for 5 minutes then remove
+sleep 300
+tc qdisc del dev eth0 root
 ```
 
-**Network Chaos:**
-```yaml
-apiVersion: chaos-mesh.org/v1alpha1
-kind: NetworkChaos
-metadata:
-  name: network-delay-test
-spec:
-  action: delay
-  mode: all
-  selector:
-    namespaces:
-      - core
-  delay:
-    latency: "200ms"
-    jitter: "50ms"
-  duration: "5m"
-```
+**Resource Exhaustion:**
+- Fill disk space to test handling
+- Consume memory to trigger OOM behavior
+- CPU stress testing
+- Database connection pool exhaustion
+
+**Chaos Testing Tools:**
+- Chaos Toolkit for orchestration
+- Custom Ansible playbooks
+- Automated via CI/CD on schedule
 
 ---
 
@@ -1622,7 +1730,8 @@ Example:
 **Configuration Backups:**
 - Infrastructure as Code (Git)
 - Secrets (encrypted backups)
-- Kubernetes manifests (Git)
+- Ansible playbooks and configurations (Git)
+- VM templates and snapshots
 
 ### 12.2 Recovery Procedures
 
@@ -1647,9 +1756,11 @@ Example:
 
 **2. Availability Zone Failure:**
 ```
-1. Kubernetes reschedules pods to healthy nodes (2-5 min)
-2. Traffic rerouted to available zones
-3. Monitor and scale if needed
+1. HAProxy health checks detect failed VMs immediately
+2. Traffic automatically rerouted to healthy VMs in other zones
+3. VMs automatically restarted on healthy hosts (vSphere HA)
+4. Provision replacement VMs if host hardware failed (5-10 min)
+5. Monitor and scale if needed
 ```
 
 **3. Complete Data Center Failure:**
@@ -1714,12 +1825,15 @@ Estimated: 2-4 hours
 **API Gateway:**
 - Kong / Apigee
 
-**Service Mesh:**
-- Istio / Linkerd
+**Service Discovery & Load Balancing:**
+- Consul for service discovery
+- HAProxy for load balancing
+- Keepalived for HA
 
-**Container Orchestration:**
-- Kubernetes 1.28+
-- Helm 3
+**Virtualization & Orchestration:**
+- VMware vSphere / Hyper-V / Proxmox
+- Terraform for VM provisioning
+- Ansible for configuration management
 
 **Observability:**
 - Prometheus + Grafana
@@ -1727,9 +1841,9 @@ Estimated: 2-4 hours
 - Jaeger / Tempo
 
 **CI/CD:**
-- GitLab CI / GitHub Actions
-- ArgoCD (GitOps)
-- Terraform (IaC)
+- GitLab CI / GitHub Actions / Jenkins
+- Ansible (Configuration Management)
+- Terraform (Infrastructure Provisioning)
 
 **Security:**
 - HashiCorp Vault
