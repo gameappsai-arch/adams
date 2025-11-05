@@ -282,8 +282,8 @@ def html_to_pdf(html_content, output_file):
     )
 
 def main():
-    input_md = '/home/user/adams/NyotaPay_Architecture_Improved.md'
-    output_pdf = '/home/user/adams/NyotaPay_Architecture_Improved.pdf'
+    input_md = '/home/user/adams/NyotaPay_Architecture.md'
+    output_pdf = '/home/user/adams/NyotaPay_Architecture.pdf'
 
     print("Converting markdown to HTML...")
     html_content = markdown_to_html(input_md)
