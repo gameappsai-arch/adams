@@ -187,20 +187,11 @@ Command → Aggregate → Event → Event Store → Projection → Read Model
 
 ### 3.2 Event Sourcing
 
-Store all state changes as sequence of events:
-
-```sql
--- Event Store Schema
-CREATE TABLE EventStream (
-    AggregateId UNIQUEIDENTIFIER NOT NULL,
-    Version INT NOT NULL,
-    EventType VARCHAR(100) NOT NULL,
-    EventData NVARCHAR(MAX) NOT NULL,
-    Metadata NVARCHAR(MAX),
-    CreatedAt DATETIME2 NOT NULL DEFAULT GETUTCDATE(),
-    PRIMARY KEY (AggregateId, Version)
-);
-```
+Store all state changes as sequence of events in an Event Store. Each event represents a state change with:
+- Aggregate identifier
+- Version number for optimistic concurrency
+- Event type and payload
+- Metadata and timestamp
 
 **Benefits:**
 - Complete audit trail
@@ -227,17 +218,12 @@ Each step has compensating transaction for rollback.
 
 ### 3.4 Outbox Pattern
 
-Ensures reliable event publishing:
-
-```sql
--- Same transaction writes business data + outbox
-BEGIN TRANSACTION
-    INSERT INTO Transactions (...) VALUES (...)
-    INSERT INTO Outbox (EventType, Payload) VALUES (...)
-COMMIT
-
--- Background worker polls and publishes
-```
+Ensures reliable event publishing by writing events to an outbox table in the same transaction as business data. The process:
+1. Business transaction writes data to main tables
+2. Same transaction writes events to outbox table
+3. Transaction commits atomically
+4. Background worker polls outbox and publishes events to message broker
+5. Mark events as processed after successful publication
 
 ### 3.5 API Gateway Pattern
 
@@ -349,29 +335,22 @@ POST /api/v1/transfers/p2p
 
 **Double-Entry Bookkeeping:**
 
-```sql
-CREATE TABLE LedgerEntry (
-    EntryId BIGINT IDENTITY PRIMARY KEY,
-    TransactionId UNIQUEIDENTIFIER NOT NULL,
-    AccountId UNIQUEIDENTIFIER NOT NULL,
-    DebitAmount DECIMAL(18,2),
-    CreditAmount DECIMAL(18,2),
-    Balance DECIMAL(18,2) NOT NULL,
-    EntryType VARCHAR(50) NOT NULL,
-    Reference VARCHAR(200),
-    CreatedAt DATETIME2 DEFAULT GETUTCDATE(),
-    CONSTRAINT CHK_DebitOrCredit CHECK (
-        (DebitAmount IS NOT NULL AND CreditAmount IS NULL) OR
-        (DebitAmount IS NULL AND CreditAmount IS NOT NULL)
-    )
-);
+The ledger service maintains a complete financial record using double-entry accounting principles. Each ledger entry contains:
+- Unique entry identifier
+- Transaction reference
+- Account identifier
+- Debit or credit amount (never both)
+- Running balance after entry
+- Entry type and reference information
+- Timestamp
 
--- For each transfer, create paired entries:
--- Entry 1: Debit sender account
--- Entry 2: Credit receiver account
--- Entry 3: Debit receiver for fee (optional)
--- Entry 4: Credit fee income account (optional)
-```
+For each transfer, the system creates paired entries:
+- Entry 1: Debit sender account
+- Entry 2: Credit receiver account
+- Entry 3: Debit receiver for fee (optional)
+- Entry 4: Credit fee income account (optional)
+
+Database constraints ensure each entry has either a debit OR credit amount, never both or neither.
 
 **Consistency:**
 - All entries in single transaction
@@ -387,21 +366,15 @@ CREATE TABLE LedgerEntry (
 - Multi-currency support
 
 **Balance Calculation:**
-```csharp
-public decimal GetBalance(Guid accountId) {
-    // Try cache first
-    var cached = _cache.Get($"balance:{accountId}");
-    if (cached != null) return cached;
 
-    // Fallback to ledger
-    var balance = _ledgerService.ComputeBalance(accountId);
+The wallet service implements a cache-first strategy for balance queries:
+1. Check cache for account balance using account ID as key
+2. If cached value exists, return immediately
+3. If cache miss, query ledger service to compute balance from ledger entries
+4. Cache the computed balance with 30-second TTL
+5. Return balance to caller
 
-    // Cache with short TTL
-    _cache.Set($"balance:{accountId}", balance, TimeSpan.FromSeconds(30));
-
-    return balance;
-}
-```
+This approach reduces database load while ensuring balance data remains reasonably fresh.
 
 ### 4.5 Authentication & Authorization Service
 
@@ -450,31 +423,28 @@ Risk Score > 70: Auto-reject + Alert
 
 **Dynamic Fee Structure:**
 
-```csharp
-public class FeeCalculator {
-    public FeeResult Calculate(
-        TransactionType type,
-        decimal amount,
-        CustomerTier tier,
-        MerchantCategory merchant) {
+The fee calculation engine uses a rule-based approach:
 
-        var rule = _ruleEngine.Match(type, tier, merchant);
+**Input Parameters:**
+- Transaction type (P2P, cash-in, merchant payment)
+- Transaction amount
+- Customer tier (basic, silver, gold, platinum)
+- Merchant category (if applicable)
 
-        var fee = rule.Type switch {
-            FeeType.Percentage => amount * rule.Rate,
-            FeeType.Fixed => rule.FixedAmount,
-            FeeType.Tiered => CalculateTiered(amount, rule.Tiers),
-            _ => 0
-        };
+**Calculation Process:**
+1. Rule engine matches input parameters to appropriate fee rule
+2. Apply fee calculation based on rule type:
+   - **Percentage**: Fee = Amount × Rate
+   - **Fixed**: Fee = Fixed Amount
+   - **Tiered**: Fee calculated based on amount brackets
+3. Apply maximum fee cap if defined
+4. Calculate tax amount based on fee and tax rate
+5. Return complete fee breakdown
 
-        return new FeeResult {
-            FeeAmount = Math.Min(fee, rule.MaxFee),
-            TaxAmount = fee * rule.TaxRate,
-            NetFee = fee
-        };
-    }
-}
-```
+**Fee Result:**
+- Fee amount (before tax)
+- Tax amount
+- Net fee (total charged to customer)
 
 ---
 
@@ -612,71 +582,51 @@ Features:
 ### 6.2 Database Schema Design
 
 **Transaction Table:**
-```sql
-CREATE TABLE [dbo].[Transaction] (
-    TransactionId UNIQUEIDENTIFIER DEFAULT NEWID() PRIMARY KEY,
-    ExternalRef VARCHAR(100) UNIQUE NOT NULL,
-    TransactionType VARCHAR(50) NOT NULL,
-    SourceAccountId UNIQUEIDENTIFIER NOT NULL,
-    DestinationAccountId UNIQUEIDENTIFIER,
-    Amount DECIMAL(18,2) NOT NULL,
-    Currency CHAR(3) DEFAULT 'TZS',
-    FeeAmount DECIMAL(18,2),
-    Status VARCHAR(20) NOT NULL,
-    FailureReason VARCHAR(500),
-    Metadata NVARCHAR(MAX), -- JSON
-    CreatedAt DATETIME2 DEFAULT GETUTCDATE(),
-    UpdatedAt DATETIME2 DEFAULT GETUTCDATE(),
-    CompletedAt DATETIME2,
-    IdempotencyKey VARCHAR(100) UNIQUE,
 
-    CONSTRAINT FK_Transaction_SourceAccount
-        FOREIGN KEY (SourceAccountId)
-        REFERENCES Account(AccountId),
+The transaction table stores all payment transactions with the following key attributes:
+- Unique transaction identifier (GUID)
+- External reference (unique, for idempotency)
+- Transaction type (P2P, cash-in, cash-out, merchant payment)
+- Source and destination account identifiers
+- Amount and currency
+- Fee amount
+- Status (pending, processing, completed, failed)
+- Failure reason (if applicable)
+- Metadata (JSON format for flexible attributes)
+- Timestamps (created, updated, completed)
+- Idempotency key for duplicate detection
 
-    INDEX IX_Transaction_ExternalRef (ExternalRef),
-    INDEX IX_Transaction_CreatedAt (CreatedAt),
-    INDEX IX_Transaction_Status (Status)
-);
-```
+Indexes are created on:
+- External reference for fast lookup
+- Creation timestamp for time-based queries
+- Status for filtering active transactions
 
 **Account Table:**
-```sql
-CREATE TABLE [dbo].[Account] (
-    AccountId UNIQUEIDENTIFIER DEFAULT NEWID() PRIMARY KEY,
-    CustomerId UNIQUEIDENTIFIER NOT NULL,
-    AccountNumber VARCHAR(20) UNIQUE NOT NULL,
-    AccountType VARCHAR(20) NOT NULL,
-    Currency CHAR(3) DEFAULT 'TZS',
-    Status VARCHAR(20) NOT NULL,
-    Balance AS (
-        SELECT ISNULL(SUM(CreditAmount - DebitAmount), 0)
-        FROM LedgerEntry
-        WHERE AccountId = Account.AccountId
-    ) PERSISTED,
-    CreatedAt DATETIME2 DEFAULT GETUTCDATE(),
 
-    CONSTRAINT FK_Account_Customer
-        FOREIGN KEY (CustomerId)
-        REFERENCES Customer(CustomerId)
-);
-```
+The account table manages customer wallet accounts with:
+- Unique account identifier (GUID)
+- Customer identifier (foreign key)
+- Account number (unique)
+- Account type (personal, business, agent)
+- Currency
+- Status (active, frozen, closed)
+- Computed balance (calculated from ledger entries)
+- Creation timestamp
+
+The balance is computed dynamically from ledger entries to ensure consistency with the ledger of record.
 
 **Outbox Table:**
-```sql
-CREATE TABLE [dbo].[Outbox] (
-    OutboxId BIGINT IDENTITY PRIMARY KEY,
-    AggregateId UNIQUEIDENTIFIER NOT NULL,
-    EventType VARCHAR(100) NOT NULL,
-    Payload NVARCHAR(MAX) NOT NULL,
-    Status VARCHAR(20) DEFAULT 'Pending',
-    RetryCount INT DEFAULT 0,
-    CreatedAt DATETIME2 DEFAULT GETUTCDATE(),
-    ProcessedAt DATETIME2,
 
-    INDEX IX_Outbox_Status_CreatedAt (Status, CreatedAt)
-);
-```
+The outbox table facilitates reliable event publishing with:
+- Auto-incrementing outbox identifier
+- Aggregate identifier
+- Event type
+- Event payload (JSON)
+- Processing status (pending, processed, failed)
+- Retry count
+- Timestamps (created, processed)
+
+An index on status and creation time enables efficient polling for pending events.
 
 ### 6.3 Data Consistency Patterns
 
@@ -1022,69 +972,40 @@ Min In-Sync Replicas: 2
 ### 9.1 Resilience Patterns
 
 **Circuit Breaker:**
-```csharp
-var circuitBreakerPolicy = Policy
-    .Handle<HttpRequestException>()
-    .CircuitBreakerAsync(
-        exceptionsAllowedBeforeBreaking: 5,
-        durationOfBreak: TimeSpan.FromSeconds(30),
-        onBreak: (exception, duration) => {
-            logger.LogWarning("Circuit breaker opened");
-        },
-        onReset: () => {
-            logger.LogInformation("Circuit breaker reset");
-        }
-    );
-```
+Prevents cascading failures by stopping calls to failing services:
+- **Closed State**: Requests pass through normally
+- **Open State**: After 5 consecutive failures, circuit opens for 30 seconds
+- **Half-Open State**: After timeout, allow test request to check service health
+- Log circuit state changes for monitoring
 
 **Retry Policy:**
-```csharp
-var retryPolicy = Policy
-    .Handle<HttpRequestException>()
-    .WaitAndRetryAsync(
-        retryCount: 3,
-        sleepDurationProvider: attempt =>
-            TimeSpan.FromSeconds(Math.Pow(2, attempt)),
-        onRetry: (exception, timeSpan, retryCount, context) => {
-            logger.LogWarning($"Retry {retryCount} after {timeSpan}");
-        }
-    );
-```
+Automatically retries transient failures with exponential backoff:
+- Retry failed requests up to 3 times
+- Wait duration: 2^attempt seconds (2s, 4s, 8s)
+- Log each retry attempt with timing
+- Handle transient errors like network issues
 
 **Bulkhead Isolation:**
-```csharp
-var bulkheadPolicy = Policy
-    .BulkheadAsync(
-        maxParallelization: 10,
-        maxQueuingActions: 20,
-        onBulkheadRejectedAsync: async context => {
-            await metricsCollector.IncrementBulkheadRejection();
-        }
-    );
-```
+Limits concurrent operations to prevent resource exhaustion:
+- Maximum 10 parallel operations
+- Queue up to 20 additional requests
+- Reject requests beyond queue capacity
+- Track rejection metrics for capacity planning
 
 **Timeout:**
-```csharp
-var timeoutPolicy = Policy
-    .TimeoutAsync(
-        TimeSpan.FromSeconds(10),
-        TimeoutStrategy.Pessimistic
-    );
-```
+Prevents indefinite waiting for slow operations:
+- 10-second timeout for external service calls
+- Pessimistic strategy (cancels operation actively)
+- Fail fast rather than hanging
 
 **Combined Policy:**
-```csharp
-var resiliencePolicy = Policy.WrapAsync(
-    circuitBreakerPolicy,
-    retryPolicy,
-    bulkheadPolicy,
-    timeoutPolicy
-);
+Multiple resilience patterns work together:
+1. Timeout ensures operations don't hang
+2. Bulkhead limits concurrent load
+3. Retry handles transient failures
+4. Circuit breaker prevents repeated failures to unhealthy services
 
-await resiliencePolicy.ExecuteAsync(async () => {
-    return await _httpClient.GetAsync(url);
-});
-```
+All policies are applied in a layered approach for comprehensive resilience.
 
 ### 9.2 Scalability Strategies
 
@@ -1192,48 +1113,35 @@ server {
 ### 9.4 Rate Limiting
 
 **Distributed Rate Limiting (Redis):**
-```csharp
-public async Task<bool> AllowRequest(string clientId) {
-    var key = $"rate_limit:{clientId}:{DateTime.UtcNow:yyyyMMddHHmm}";
-    var count = await _redis.IncrementAsync(key);
 
-    if (count == 1) {
-        await _redis.ExpireAsync(key, TimeSpan.FromMinutes(1));
-    }
+Uses Redis for distributed rate limiting across multiple application instances:
+1. Create unique key combining client ID and current minute timestamp
+2. Increment counter for this key in Redis
+3. Set 1-minute expiration on first increment
+4. Check if count exceeds limit (e.g., 100 requests per minute)
+5. Allow or reject request based on count
 
-    return count <= 100; // 100 requests per minute
-}
-```
+This approach ensures consistent rate limiting across all service instances.
 
 **Token Bucket Algorithm:**
-```csharp
-public class TokenBucketRateLimiter {
-    private readonly int _capacity;
-    private readonly int _refillRate;
-    private int _tokens;
-    private DateTime _lastRefill;
 
-    public bool TryConsume(int tokens = 1) {
-        Refill();
+Implements smooth rate limiting with burst capacity:
 
-        if (_tokens >= tokens) {
-            _tokens -= tokens;
-            return true;
-        }
+**Configuration:**
+- Bucket capacity (maximum tokens)
+- Refill rate (tokens per second)
 
-        return false;
-    }
+**Operation:**
+1. **Refill**: Calculate tokens to add based on elapsed time since last refill
+2. Add tokens to bucket (up to capacity limit)
+3. **Consume**: Check if enough tokens available
+4. If sufficient tokens, deduct and allow request
+5. If insufficient, reject request
 
-    private void Refill() {
-        var now = DateTime.UtcNow;
-        var elapsed = (now - _lastRefill).TotalSeconds;
-        var tokensToAdd = (int)(elapsed * _refillRate);
-
-        _tokens = Math.Min(_capacity, _tokens + tokensToAdd);
-        _lastRefill = now;
-    }
-}
-```
+**Benefits:**
+- Allows burst traffic up to capacity
+- Smooth refill prevents thundering herd
+- Fair distribution over time
 
 ### 9.5 Chaos Engineering
 
@@ -1374,29 +1282,24 @@ X-Request-ID: 7c9e6679-7425-40de-944b-e07fc1f90ae7
 ### 10.3 Idempotency
 
 **Idempotency Key Handling:**
-```csharp
-public async Task<IActionResult> CreateTransfer(
-    [FromBody] TransferRequest request,
-    [FromHeader(Name = "X-Idempotency-Key")] string idempotencyKey) {
 
-    // Check if already processed
-    var existing = await _repository.GetByIdempotencyKey(idempotencyKey);
-    if (existing != null) {
-        return StatusCode(existing.StatusCode, existing.Response);
-    }
+Ensures duplicate requests return the same result without re-processing:
 
-    // Process new request
-    var result = await _transferService.Execute(request);
+**Process Flow:**
+1. Client includes unique idempotency key in request header (X-Idempotency-Key)
+2. Service checks if key exists in idempotency store
+3. **If key exists**: Return previously stored response (status code and body)
+4. **If key is new**:
+   - Process the transfer request
+   - Store result with idempotency key
+   - Set 24-hour expiration on stored result
+   - Return accepted response
 
-    // Store result with idempotency key
-    await _repository.SaveIdempotencyResult(
-        idempotencyKey,
-        result,
-        TimeSpan.FromHours(24));
-
-    return Accepted(result);
-}
-```
+**Key Features:**
+- Prevents duplicate transactions from network retries
+- Returns identical response for duplicate requests
+- 24-hour retention window for idempotency keys
+- Stored response includes status code and full response body
 
 ### 10.4 Pagination
 
@@ -1455,21 +1358,21 @@ X-NyotaPay-Event: transfer.completed
 ```
 
 **Signature Verification:**
-```csharp
-public bool VerifyWebhookSignature(
-    string payload,
-    string signature,
-    string secret) {
 
-    var hash = HMACSHA256.HashData(
-        Encoding.UTF8.GetBytes(secret),
-        Encoding.UTF8.GetBytes(payload)
-    );
+Webhooks include HMAC-SHA256 signature for authentication:
 
-    var computedSignature = $"sha256={Convert.ToHexString(hash)}";
-    return signature.Equals(computedSignature, StringComparison.OrdinalIgnoreCase);
-}
-```
+**Verification Process:**
+1. Extract signature from X-NyotaPay-Signature header
+2. Retrieve webhook secret for the merchant
+3. Compute HMAC-SHA256 hash of raw payload using secret
+4. Format computed hash as "sha256={hex_string}"
+5. Compare computed signature with received signature (case-insensitive)
+6. Reject webhook if signatures don't match
+
+**Security Benefits:**
+- Verifies webhook came from NyotaPay
+- Prevents tampering with webhook data
+- Protects against replay attacks when combined with timestamp checking
 
 ---
 
@@ -1482,35 +1385,31 @@ public bool VerifyWebhookSignature(
 ### 11.2 Metrics (Prometheus + Grafana)
 
 **Application Metrics:**
-```csharp
-// Counter
-private static readonly Counter TransferRequests = Metrics
-    .CreateCounter("nyotapay_transfer_requests_total",
-        "Total transfer requests",
-        new CounterConfiguration {
-            LabelNames = new[] { "type", "status" }
-        });
 
-// Histogram
-private static readonly Histogram TransferDuration = Metrics
-    .CreateHistogram("nyotapay_transfer_duration_seconds",
-        "Transfer processing duration",
-        new HistogramConfiguration {
-            LabelNames = new[] { "type" },
-            Buckets = new[] { 0.1, 0.5, 1, 2, 5, 10 }
-        });
+The system collects metrics using Prometheus client libraries:
 
-// Gauge
-private static readonly Gauge ActiveTransfers = Metrics
-    .CreateGauge("nyotapay_active_transfers",
-        "Number of active transfers");
+**Counter Metrics:**
+- Track total transfer requests
+- Labels: type (p2p, cash-in, merchant), status (success, error)
+- Increment on each request
+- Example: `nyotapay_transfer_requests_total{type="p2p",status="success"}`
 
-// Usage
-TransferRequests.WithLabels("p2p", "success").Inc();
-using (TransferDuration.WithLabels("p2p").NewTimer()) {
-    await ProcessTransfer();
-}
-```
+**Histogram Metrics:**
+- Measure transfer processing duration
+- Labels: transaction type
+- Buckets: 0.1s, 0.5s, 1s, 2s, 5s, 10s
+- Calculate percentiles (P50, P95, P99)
+- Example: `nyotapay_transfer_duration_seconds`
+
+**Gauge Metrics:**
+- Track current number of active transfers
+- Updates in real-time as transfers start/complete
+- Example: `nyotapay_active_transfers`
+
+**Usage Pattern:**
+- Increment counters on events
+- Record histogram observations with timing
+- Set gauge values for current state
 
 **Infrastructure Metrics:**
 - CPU, Memory, Disk usage
@@ -1533,20 +1432,19 @@ using (TransferDuration.WithLabels("p2p").NewTimer()) {
 ### 11.3 Logging (ELK Stack / Loki)
 
 **Structured Logging:**
-```csharp
-_logger.LogInformation(
-    "Transfer initiated. " +
-    "TransferId={TransferId}, " +
-    "SourceAccount={SourceAccount}, " +
-    "Amount={Amount}, " +
-    "RequestId={RequestId}",
-    transferId,
-    sourceAccount,
-    amount,
-    requestId
-);
 
-// Output (JSON):
+All services use structured logging with key-value pairs for easy querying:
+
+**Log Entry Components:**
+- **Timestamp**: ISO 8601 format with milliseconds
+- **Level**: Information, Warning, Error, etc.
+- **Message**: Human-readable description
+- **Context Fields**: Key business data (transferId, accountId, amount)
+- **Request ID**: Correlation ID for tracing
+- **Service Metadata**: Service name, version, environment
+
+**Example Log Output (JSON format):**
+```json
 {
   "@timestamp": "2025-11-05T10:30:00.123Z",
   "level": "Information",
@@ -1560,6 +1458,11 @@ _logger.LogInformation(
   "environment": "production"
 }
 ```
+
+**Benefits:**
+- Easy filtering and searching in log aggregation tools
+- Consistent format across all services
+- Rich context for debugging
 
 **Log Levels:**
 - **TRACE**: Very detailed (dev only)
@@ -1578,27 +1481,32 @@ Application → Fluent Bit → Elasticsearch → Kibana
 ### 11.4 Distributed Tracing (Jaeger/Zipkin)
 
 **Trace Context Propagation:**
-```csharp
-using var activity = Activity.Current?.Source.StartActivity("ProcessTransfer");
-activity?.SetTag("transfer.id", transferId);
-activity?.SetTag("transfer.type", "p2p");
-activity?.SetTag("transfer.amount", amount);
 
-try {
-    var result = await _walletService.ReserveBalance(sourceAccount, amount);
-    activity?.SetTag("balance.reserved", true);
+Distributed tracing tracks requests across all services:
 
-    // ... continue processing
+**Trace Implementation:**
+1. Start activity (span) for each operation with descriptive name
+2. Add tags with business context:
+   - Transfer ID
+   - Transaction type
+   - Amount
+   - Account IDs
+3. Execute business logic
+4. Add tags for key milestones (e.g., balance reserved)
+5. Set final status:
+   - **Success**: Mark as OK with completion time
+   - **Error**: Mark as Error, record exception details
+6. Activity automatically propagates to downstream services
 
-    activity?.SetStatus(ActivityStatusCode.Ok);
-    return result;
-}
-catch (Exception ex) {
-    activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
-    activity?.RecordException(ex);
-    throw;
-}
-```
+**Trace Hierarchy:**
+- Parent span: HTTP request handling
+- Child spans: Database queries, external API calls, business logic
+- Each span includes timing and metadata
+
+**Error Handling:**
+- Exceptions are recorded with full stack trace
+- Error status propagates up the call chain
+- Helps identify exact failure point
 
 **Trace Visualization:**
 ```
