@@ -673,14 +673,12 @@ Transfer Saga:
 Core Service → Interface → Adapter → External System
 ```
 
-Each adapter implements standard interface:
-```csharp
-public interface IPaymentGateway {
-    Task<PaymentResult> ProcessPayment(PaymentRequest request);
-    Task<PaymentStatus> GetStatus(string referenceId);
-    Task<RefundResult> RefundPayment(string referenceId);
-}
-```
+Each adapter implements a standard interface with the following operations:
+- **ProcessPayment**: Initiates a payment transaction with the external gateway
+- **GetStatus**: Queries the current status of a transaction using reference ID
+- **RefundPayment**: Processes a refund for a completed transaction
+
+All adapters follow the same contract for consistent integration patterns across different payment providers.
 
 ### 7.2 Bank Integration
 
