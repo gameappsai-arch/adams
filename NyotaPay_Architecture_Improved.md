@@ -187,20 +187,11 @@ Command → Aggregate → Event → Event Store → Projection → Read Model
 
 ### 3.2 Event Sourcing
 
-Store all state changes as sequence of events:
-
-```sql
--- Event Store Schema
-CREATE TABLE EventStream (
-    AggregateId UNIQUEIDENTIFIER NOT NULL,
-    Version INT NOT NULL,
-    EventType VARCHAR(100) NOT NULL,
-    EventData NVARCHAR(MAX) NOT NULL,
-    Metadata NVARCHAR(MAX),
-    CreatedAt DATETIME2 NOT NULL DEFAULT GETUTCDATE(),
-    PRIMARY KEY (AggregateId, Version)
-);
-```
+Store all state changes as sequence of events in an Event Store. Each event represents a state change with:
+- Aggregate identifier
+- Version number for optimistic concurrency
+- Event type and payload
+- Metadata and timestamp
 
 **Benefits:**
 - Complete audit trail
@@ -227,17 +218,12 @@ Each step has compensating transaction for rollback.
 
 ### 3.4 Outbox Pattern
 
-Ensures reliable event publishing:
-
-```sql
--- Same transaction writes business data + outbox
-BEGIN TRANSACTION
-    INSERT INTO Transactions (...) VALUES (...)
-    INSERT INTO Outbox (EventType, Payload) VALUES (...)
-COMMIT
-
--- Background worker polls and publishes
-```
+Ensures reliable event publishing by writing events to an outbox table in the same transaction as business data. The process:
+1. Business transaction writes data to main tables
+2. Same transaction writes events to outbox table
+3. Transaction commits atomically
+4. Background worker polls outbox and publishes events to message broker
+5. Mark events as processed after successful publication
 
 ### 3.5 API Gateway Pattern
 
@@ -349,29 +335,22 @@ POST /api/v1/transfers/p2p
 
 **Double-Entry Bookkeeping:**
 
-```sql
-CREATE TABLE LedgerEntry (
-    EntryId BIGINT IDENTITY PRIMARY KEY,
-    TransactionId UNIQUEIDENTIFIER NOT NULL,
-    AccountId UNIQUEIDENTIFIER NOT NULL,
-    DebitAmount DECIMAL(18,2),
-    CreditAmount DECIMAL(18,2),
-    Balance DECIMAL(18,2) NOT NULL,
-    EntryType VARCHAR(50) NOT NULL,
-    Reference VARCHAR(200),
-    CreatedAt DATETIME2 DEFAULT GETUTCDATE(),
-    CONSTRAINT CHK_DebitOrCredit CHECK (
-        (DebitAmount IS NOT NULL AND CreditAmount IS NULL) OR
-        (DebitAmount IS NULL AND CreditAmount IS NOT NULL)
-    )
-);
+The ledger service maintains a complete financial record using double-entry accounting principles. Each ledger entry contains:
+- Unique entry identifier
+- Transaction reference
+- Account identifier
+- Debit or credit amount (never both)
+- Running balance after entry
+- Entry type and reference information
+- Timestamp
 
--- For each transfer, create paired entries:
--- Entry 1: Debit sender account
--- Entry 2: Credit receiver account
--- Entry 3: Debit receiver for fee (optional)
--- Entry 4: Credit fee income account (optional)
-```
+For each transfer, the system creates paired entries:
+- Entry 1: Debit sender account
+- Entry 2: Credit receiver account
+- Entry 3: Debit receiver for fee (optional)
+- Entry 4: Credit fee income account (optional)
+
+Database constraints ensure each entry has either a debit OR credit amount, never both or neither.
 
 **Consistency:**
 - All entries in single transaction
@@ -612,71 +591,51 @@ Features:
 ### 6.2 Database Schema Design
 
 **Transaction Table:**
-```sql
-CREATE TABLE [dbo].[Transaction] (
-    TransactionId UNIQUEIDENTIFIER DEFAULT NEWID() PRIMARY KEY,
-    ExternalRef VARCHAR(100) UNIQUE NOT NULL,
-    TransactionType VARCHAR(50) NOT NULL,
-    SourceAccountId UNIQUEIDENTIFIER NOT NULL,
-    DestinationAccountId UNIQUEIDENTIFIER,
-    Amount DECIMAL(18,2) NOT NULL,
-    Currency CHAR(3) DEFAULT 'TZS',
-    FeeAmount DECIMAL(18,2),
-    Status VARCHAR(20) NOT NULL,
-    FailureReason VARCHAR(500),
-    Metadata NVARCHAR(MAX), -- JSON
-    CreatedAt DATETIME2 DEFAULT GETUTCDATE(),
-    UpdatedAt DATETIME2 DEFAULT GETUTCDATE(),
-    CompletedAt DATETIME2,
-    IdempotencyKey VARCHAR(100) UNIQUE,
 
-    CONSTRAINT FK_Transaction_SourceAccount
-        FOREIGN KEY (SourceAccountId)
-        REFERENCES Account(AccountId),
+The transaction table stores all payment transactions with the following key attributes:
+- Unique transaction identifier (GUID)
+- External reference (unique, for idempotency)
+- Transaction type (P2P, cash-in, cash-out, merchant payment)
+- Source and destination account identifiers
+- Amount and currency
+- Fee amount
+- Status (pending, processing, completed, failed)
+- Failure reason (if applicable)
+- Metadata (JSON format for flexible attributes)
+- Timestamps (created, updated, completed)
+- Idempotency key for duplicate detection
 
-    INDEX IX_Transaction_ExternalRef (ExternalRef),
-    INDEX IX_Transaction_CreatedAt (CreatedAt),
-    INDEX IX_Transaction_Status (Status)
-);
-```
+Indexes are created on:
+- External reference for fast lookup
+- Creation timestamp for time-based queries
+- Status for filtering active transactions
 
 **Account Table:**
-```sql
-CREATE TABLE [dbo].[Account] (
-    AccountId UNIQUEIDENTIFIER DEFAULT NEWID() PRIMARY KEY,
-    CustomerId UNIQUEIDENTIFIER NOT NULL,
-    AccountNumber VARCHAR(20) UNIQUE NOT NULL,
-    AccountType VARCHAR(20) NOT NULL,
-    Currency CHAR(3) DEFAULT 'TZS',
-    Status VARCHAR(20) NOT NULL,
-    Balance AS (
-        SELECT ISNULL(SUM(CreditAmount - DebitAmount), 0)
-        FROM LedgerEntry
-        WHERE AccountId = Account.AccountId
-    ) PERSISTED,
-    CreatedAt DATETIME2 DEFAULT GETUTCDATE(),
 
-    CONSTRAINT FK_Account_Customer
-        FOREIGN KEY (CustomerId)
-        REFERENCES Customer(CustomerId)
-);
-```
+The account table manages customer wallet accounts with:
+- Unique account identifier (GUID)
+- Customer identifier (foreign key)
+- Account number (unique)
+- Account type (personal, business, agent)
+- Currency
+- Status (active, frozen, closed)
+- Computed balance (calculated from ledger entries)
+- Creation timestamp
+
+The balance is computed dynamically from ledger entries to ensure consistency with the ledger of record.
 
 **Outbox Table:**
-```sql
-CREATE TABLE [dbo].[Outbox] (
-    OutboxId BIGINT IDENTITY PRIMARY KEY,
-    AggregateId UNIQUEIDENTIFIER NOT NULL,
-    EventType VARCHAR(100) NOT NULL,
-    Payload NVARCHAR(MAX) NOT NULL,
-    Status VARCHAR(20) DEFAULT 'Pending',
-    RetryCount INT DEFAULT 0,
-    CreatedAt DATETIME2 DEFAULT GETUTCDATE(),
-    ProcessedAt DATETIME2,
 
-    INDEX IX_Outbox_Status_CreatedAt (Status, CreatedAt)
-);
-```
+The outbox table facilitates reliable event publishing with:
+- Auto-incrementing outbox identifier
+- Aggregate identifier
+- Event type
+- Event payload (JSON)
+- Processing status (pending, processed, failed)
+- Retry count
+- Timestamps (created, processed)
+
+An index on status and creation time enables efficient polling for pending events.
 
 ### 6.3 Data Consistency Patterns
 
