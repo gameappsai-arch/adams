@@ -1858,16 +1858,6 @@ Estimated: 2-4 hours
 - **Service Mesh:** Infrastructure layer for service-to-service communication
 - **SLI/SLO/SLA:** Service Level Indicator/Objective/Agreement
 
-### C. References
-
-1. Microsoft Azure Architecture Center
-2. AWS Well-Architected Framework
-3. Google Cloud Architecture Framework
-4. Domain-Driven Design by Eric Evans
-5. Building Microservices by Sam Newman
-6. Designing Data-Intensive Applications by Martin Kleppmann
-7. Site Reliability Engineering (SRE) by Google
-
 ---
 
 ## Document Control
